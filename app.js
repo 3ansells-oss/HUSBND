@@ -76,20 +76,47 @@ function awaitsResponse(chore, role) {
 }
 
 // ---------------------------------------------------------------------------
-// Parsing a pasted `const firebaseConfig = { ... };` snippet into a real object.
-// Firebase's console gives you a JS object literal (unquoted keys), not JSON,
-// so we can't just JSON.parse it directly.
+// Parsing a pasted firebaseConfig snippet into a real object.
+// Firebase's console gives you a whole code sample (imports, comments, the
+// initializeApp() call, sometimes stray characters from copying rich text) —
+// not just the object literal, and not JSON (unquoted keys). We locate the
+// specific `{ ... }` that contains "apiKey" using brace-depth matching,
+// rather than naively grabbing from the first "{" to the last "}" in the
+// whole paste (the first "{" is usually the `import { initializeApp }` line).
 // ---------------------------------------------------------------------------
+function extractConfigObjectText(raw) {
+  const anchorIdx = raw.indexOf("apiKey");
+  if (anchorIdx === -1) {
+    throw new Error('Couldn\'t find "apiKey" in what you pasted — copy the whole firebaseConfig object from Firebase.');
+  }
+  const braceStart = raw.lastIndexOf("{", anchorIdx);
+  if (braceStart === -1) {
+    throw new Error("Couldn't find the { that starts the firebaseConfig object — copy the whole snippet from Firebase.");
+  }
+  let depth = 0;
+  let inString = null;
+  for (let i = braceStart; i < raw.length; i++) {
+    const c = raw[i];
+    if (inString) {
+      if (c === "\\") { i++; continue; } // skip escaped char
+      if (c === inString) inString = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") { inString = c; continue; }
+    if (c === "{") depth++;
+    else if (c === "}") {
+      depth--;
+      if (depth === 0) return raw.slice(braceStart, i + 1);
+    }
+  }
+  throw new Error("Couldn't find the matching } for the firebaseConfig object — copy the whole snippet from Firebase.");
+}
+
 function parseFirebaseConfigSnippet(raw) {
   if (!raw || !raw.trim()) {
     throw new Error("Paste your firebaseConfig snippet first.");
   }
-  const start = raw.indexOf("{");
-  const end = raw.lastIndexOf("}");
-  if (start === -1 || end === -1 || end < start) {
-    throw new Error("Couldn't find a { ... } object in what you pasted. Copy the whole firebaseConfig block from Firebase.");
-  }
-  let objText = raw.slice(start, end + 1);
+  let objText = extractConfigObjectText(raw);
 
   // Strip // line comments and /* block comments */
   objText = objText.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -611,3 +638,4 @@ async function boot() {
 }
 
 boot();
+
